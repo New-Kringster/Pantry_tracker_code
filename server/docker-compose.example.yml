@@ -1,0 +1,28 @@
+# Pantry tracker server + mosquitto. Home Assistant can run anywhere that reaches
+# the broker; point its MQTT integration at this host, port 1883.
+#   docker compose -f docker-compose.example.yml up -d
+# Then open http://<host>:8080/ and fill in Settings (MQTT host = mosquitto).
+services:
+  pantry:
+    build: .
+    restart: unless-stopped
+    ports: ["8080:8080"]
+    volumes: ["pantry-data:/data"]
+    environment:
+      TZ: Asia/Shanghai             # your time zone; "days left" changes at local midnight
+      PANTRY_MQTT_HOST: mosquitto   # overridable from the web page
+      PANTRY_MQTT_PORT: "1883"
+    depends_on: [mosquitto]
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports: ["1883:1883"]
+    volumes: ["mosquitto-data:/mosquitto/data", "./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro"]
+volumes:
+  pantry-data:
+  mosquitto-data:
+# mosquitto.conf (anonymous, LAN only):
+#   listener 1883
+#   allow_anonymous true
+#   persistence true
+#   persistence_location /mosquitto/data/

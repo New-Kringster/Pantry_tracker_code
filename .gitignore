@@ -3,3 +3,14 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+include/secrets.h
+dist/
+logs/
+audit.log
+server/__pycache__/
+server/data/
+
+# Notes and helper scripts tied to the author's own machines
+.plan/
+tools/
+.impeccable/

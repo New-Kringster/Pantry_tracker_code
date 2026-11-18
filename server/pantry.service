@@ -1,0 +1,20 @@
+# systemd unit for running the pantry server without Docker on a Linux host:
+# copy pantry_server.py and gs1_china.py to /opt/pantry, add a `pantry` user,
+# then copy this file to /etc/systemd/system/pantry.service and enable it.
+[Unit]
+Description=Pantry tracker server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pantry
+Group=pantry
+WorkingDirectory=/opt/pantry
+EnvironmentFile=-/etc/pantry.env
+ExecStart=/bin/sh -c 'PY=/opt/pantry/venv/bin/python3; [ -x "$PY" ] || PY=/usr/bin/python3; exec "$PY" /opt/pantry/pantry_server.py --port 8080 --bind 0.0.0.0 --data /var/lib/pantry'
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

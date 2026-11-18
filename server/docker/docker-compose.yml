@@ -1,0 +1,30 @@
+# Pantry tracker server and an MQTT broker for Home Assistant.
+# Load the images first (./install.sh does both steps), then:
+#   docker compose up -d
+# Open http://<this computer's IP>:8080/ afterwards.
+services:
+  pantry:
+    image: pantry-server:${PANTRY_VERSION:-latest}
+    container_name: pantry-server
+    restart: unless-stopped
+    ports: ["8080:8080"]
+    volumes: ["pantry-data:/data"]
+    environment:
+      TZ: Asia/Shanghai              # your time zone; "days left" changes at local midnight
+      PANTRY_MQTT_HOST: mosquitto    # can be changed later on the web page (Settings)
+      PANTRY_MQTT_PORT: "1883"
+      # Voice naming downloads its speech model from Hugging Face on first use.
+      # Where huggingface.co is blocked (mainland China), use the mirror instead:
+      # HF_ENDPOINT: https://hf-mirror.com
+    depends_on: [mosquitto]
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: pantry-mosquitto
+    restart: unless-stopped
+    ports: ["1883:1883"]
+    volumes:
+      - mosquitto-data:/mosquitto/data
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+volumes:
+  pantry-data:
+  mosquitto-data:

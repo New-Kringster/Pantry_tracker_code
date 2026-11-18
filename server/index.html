@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pantry</title>
+<style>
+  :root { color-scheme: dark; font-family: -apple-system, system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+  body { margin: 0; padding: 16px; max-width: 760px; margin-inline: auto; background: #000; color: #f2f2f2; }
+  h1 { font-size: 1.6rem; margin: 0 0 12px; display: flex; justify-content: space-between; align-items: baseline; }
+  h1 small { font-weight: normal; opacity: .55; font-size: .85rem; }
+  .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .tab { background: #2b2b2d; border: none; color: #ddd; padding: 8px 14px; border-radius: 999px; font: inherit; cursor: pointer; }
+  .tab.on { background: #e5e5e7; color: #000; font-weight: 600; }
+  .tab.ghost { opacity: .6; }
+  form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-bottom: 16px; }
+  input, button { font: inherit; padding: 9px 12px; border-radius: 10px; border: 1px solid #333; background: #1c1c1e; color: #eee; }
+  button { cursor: pointer; }
+  ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+  li { display: grid; grid-template-columns: 60px 1fr auto auto; gap: 12px; align-items: center;
+       padding: 10px 12px; border-radius: 16px; background: #3a3a3c; }
+  li img, li .noimg { width: 56px; height: 56px; object-fit: contain; border-radius: 12px; background: #ddd; }
+  .name { font-weight: 700; font-size: 1.1rem; cursor: text; }
+  .name:hover { text-decoration: underline dotted; }
+  .sub { opacity: .6; font-size: .8rem; margin-top: 2px; }
+  .src { font-size: .65rem; padding: 1px 6px; border-radius: 6px; background: #555; margin-left: 6px; vertical-align: middle; }
+  .days { font-weight: 800; font-size: 1.5rem; white-space: nowrap; }
+  .expired { color: #ff453a; } .soon { color: #ff453a; } .week { color: #ffb020; } .ok { color: #fff; }
+  .del { background: none; border: none; opacity: .5; font-size: 1.1rem; } .del:hover { opacity: 1; }
+  #msg { color: #ff453a; min-height: 1.2em; margin-bottom: 8px; }
+  .hint { opacity: .5; font-size: .85rem; }
+</style>
+</head>
+<body>
+<h1>Pantry <small id="today"></small></h1>
+<div class="tabs" id="tabs"></div>
+<form id="add">
+  <input name="barcode" placeholder="Barcode" required autofocus>
+  <input name="expires" type="date" required>
+  <button>Add</button>
+</form>
+<div id="msg"></div>
+<ul id="list"></ul>
+<p class="hint">Click a product name to rename it; unknown barcodes keep your name for the next scan. Right-click a pantry tab to rename or delete it.</p>
+<details id="settings" class="hint" style="margin-top:14px;padding:12px;border-radius:12px;background:#1c1c1e">
+  <summary style="cursor:pointer;color:#ddd"><b>Settings</b> <span id="setstatus" style="opacity:.6"></span></summary>
+  <form id="setform" style="display:grid;grid-template-columns:1fr;gap:8px;margin-top:10px">
+    <div id="setfields"></div>
+    <div><button type="submit">Save settings</button> <span id="setmsg"></span></div>
+    <div style="opacity:.6">Secrets are stored on the server and never shown again; leave a password field blank to keep it. Values here override <code>/etc/pantry.env</code>.</div>
+  </form>
+</details>
+<div id="gs1" class="hint" style="margin-top:14px;padding:12px;border-radius:12px;background:#1c1c1e">
+  <b>GS1 China</b>: <span id="gs1status">…</span> <button id="gs1btn" class="tab" style="margin-left:8px">Sign in</button>
+  <div id="gs1flow" style="display:none;margin-top:10px">
+    <div id="gs1cap"><img id="gs1img" alt="captcha" style="height:50px;vertical-align:middle;border-radius:6px;background:#fff"> <input id="gs1code" placeholder="captcha" style="width:110px"> <button id="gs1go">Submit</button> <button id="gs1new" title="new captcha">↻</button></div>
+    <div id="gs1sms" style="display:none">GS1 wants to verify this new location by SMS to <span id="gs1phone"></span>: <button id="gs1send">Send SMS</button> <input id="gs1smscode" placeholder="SMS code" style="width:110px"> <button id="gs1verify">Verify</button></div>
+    <div id="gs1msg" style="color:#ff453a;min-height:1.2em"></div>
+  </div>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+let pantry = localStorage.getItem('pantry') || 'all';
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const api = (m, p, b) => fetch(p, {method: m, headers: b ? {'Content-Type': 'application/json'} : {}, body: b ? JSON.stringify(b) : undefined});
+function badge(d) {
+  if (d < 0) return ['expired', d === -1 ? 'Expired' : `${-d} d ago`];
+  if (d === 0) return ['soon', 'Today'];
+  if (d === 1) return ['soon', '1 Day'];
+  if (d <= 3) return ['soon', `${d} Days`];
+  if (d <= 7) return ['week', `${d} Days`];
+  return ['ok', `${d} Days`];
+}
+const ago = d => d === 0 ? 'today' : d === 1 ? '1d ago' : d < 7 ? `${d}d ago` : d < 30 ? `${Math.floor(d/7)}wk ago` : `${Math.floor(d/30)}mo ago`;
+async function loadPantries() {
+  const r = await fetch('/api/pantries'); const j = await r.json();
+  const tabs = [`<button class="tab ${pantry==='all'?'on':''}" data-id="all">All</button>`]
+    .concat(j.pantries.map(p => `<button class="tab ${String(p.id)===pantry?'on':''}" data-id="${p.id}" title="${p.items} items">${esc(p.name)}${p.expiring_soon||p.expired ? ' · ' + (p.expired+p.expiring_soon) : ''}</button>`))
+    .concat([`<button class="tab ghost" data-id="new">+ Create pantry</button>`]);
+  $('#tabs').innerHTML = tabs.join('');
+}
+async function load() {
+  await loadPantries();
+  const r = await fetch('/api/items' + (pantry !== 'all' ? '?pantry=' + pantry : '')); const j = await r.json();
+  $('#today').textContent = j.today;
+  $('#list').innerHTML = j.items.map(i => {
+    const [cls, txt] = badge(i.days_left);
+    const img = i.has_image ? `<img src="/api/products/${i.barcode}/thumb.jpg?s=112" alt="">` : `<div class="noimg"></div>`;
+    const sub = [i.brand, i.quantity, i.barcode, pantry === 'all' ? i.pantry : null, 'expires ' + i.expires].filter(Boolean).join(' · ');
+    const src = i.source === 'user' ? 'you' : i.source === 'off' ? 'OFF' : i.source === 'gs1cn' ? 'GS1' : i.source === 'api' ? 'API' : 'unknown';
+    return `<li><div>${img}</div><div><div class="name" data-id="${i.id}" title="Rename">${esc(i.name)}<span class="src">${src}</span></div><div class="sub">${esc(sub)} · added ${ago(i.days_ago)}</div></div>
+      <span class="days ${cls}">${txt}</span><button class="del" data-id="${i.id}" title="Remove">✕</button></li>`;
+  }).join('') || '<li class="sub" style="display:block">Nothing tracked here yet. Scan something.</li>';
+}
+$('#add').onsubmit = async e => {
+  e.preventDefault(); $('#msg').textContent = '';
+  const f = new FormData(e.target);
+  const body = {barcode: f.get('barcode').trim(), expires: f.get('expires')};
+  if (pantry !== 'all') body.pantry_id = Number(pantry);
+  const r = await api('POST', '/api/items', body);
+  if (!r.ok) { $('#msg').textContent = (await r.json()).error || r.statusText; return; }
+  e.target.reset(); load();
+};
+$('#list').onclick = async e => {
+  const b = e.target.closest('.del');
+  if (b) { await api('DELETE', '/api/items/' + b.dataset.id); return load(); }
+  const n = e.target.closest('.name');
+  if (n) {
+    const cur = n.firstChild.textContent;
+    const name = prompt('Product name', cur);
+    if (name && name !== cur) { await api('PATCH', '/api/items/' + n.dataset.id, {name}); load(); }
+  }
+};
+$('#tabs').onclick = async e => {
+  const t = e.target.closest('.tab'); if (!t) return;
+  if (t.dataset.id === 'new') {
+    const name = prompt('Pantry name', '');
+    if (name !== null) { const r = await api('POST', '/api/pantries', {name}); const p = await r.json(); pantry = String(p.id); }
+  } else pantry = t.dataset.id;
+  localStorage.setItem('pantry', pantry); load();
+};
+$('#tabs').oncontextmenu = async e => {
+  const t = e.target.closest('.tab'); if (!t || t.dataset.id === 'all' || t.dataset.id === 'new') return;
+  e.preventDefault();
+  const name = prompt('Rename pantry (empty to delete; items move to the default pantry)', t.textContent.split(' · ')[0]);
+  if (name === null) return;
+  if (name.trim()) await api('PATCH', '/api/pantries/' + t.dataset.id, {name: name.trim()});
+  else if (confirm('Delete this pantry?')) { await api('DELETE', '/api/pantries/' + t.dataset.id); pantry = 'all'; }
+  load();
+};
+async function gs1Status() {
+  const j = await (await fetch('/api/gs1')).json();
+  $('#gs1status').textContent = j.status;
+  $('#gs1btn').style.display = j.configured && !j.signed_in ? '' : 'none';
+}
+async function gs1Begin() {
+  $('#gs1flow').style.display = ''; $('#gs1msg').textContent = ''; $('#gs1sms').style.display = 'none';
+  const j = await (await fetch('/api/gs1/login')).json();
+  if (j.error) { $('#gs1msg').textContent = j.error; return; }
+  $('#gs1img').src = 'data:image/png;base64,' + j.captcha; $('#gs1code').value = ''; $('#gs1code').focus();
+}
+function gs1Handle(j) {
+  if (j.ok) { $('#gs1msg').style.color = '#30d158'; $('#gs1msg').textContent = 'Signed in. Lookups now include GS1 China.'; $('#gs1cap').style.display = 'none'; $('#gs1sms').style.display = 'none'; gs1Status(); return; }
+  $('#gs1msg').style.color = '#ff453a';
+  if (j.sms_required) { $('#gs1sms').style.display = ''; $('#gs1phone').textContent = j.phone; $('#gs1msg').textContent = ''; return; }
+  $('#gs1msg').textContent = j.error || 'failed';
+  if (j.captcha) { $('#gs1img').src = 'data:image/png;base64,' + j.captcha; $('#gs1code').value = ''; }
+}
+$('#gs1btn').onclick = gs1Begin;
+$('#gs1new').onclick = gs1Begin;
+$('#gs1go').onclick = async () => gs1Handle(await (await api('POST', '/api/gs1/login', {code: $('#gs1code').value})).json());
+$('#gs1send').onclick = async () => { const j = await (await api('POST', '/api/gs1/sms', {})).json(); $('#gs1msg').textContent = j.ok ? 'SMS sent; enter the code.' : j.error; };
+$('#gs1verify').onclick = async () => gs1Handle(await (await api('POST', '/api/gs1/sms-verify', {code: $('#gs1smscode').value})).json());
+async function loadSettings() {
+  const j = await (await fetch('/api/settings')).json();
+  const groups = [['GS1 China', ['gds_user','gds_pass']], ['Home Assistant (MQTT)', ['mqtt_host','mqtt_port','mqtt_user','mqtt_pass']],
+                  ['Barcode API (optional)', ['barcode_url','barcode_appcode']], ['Lookups & speech', ['name_lang','soon_days','stt_model']]];
+  $('#setfields').innerHTML = groups.map(([title, keys]) => `<div style="margin-top:6px;color:#ddd">${title}</div>` + keys.map(k => {
+    const f = j.settings[k];
+    const input = f.secret
+      ? `<input type="password" name="${k}" placeholder="${f.set ? '•••••• (set)' : 'not set'}" autocomplete="new-password"> <label style="opacity:.7"><input type="checkbox" name="clear_${k}"> clear</label>`
+      : `<input name="${k}" value="${esc(f.value)}" placeholder="not set">`;
+    return `<label style="display:grid;grid-template-columns:200px 1fr;gap:8px;align-items:center"><span style="opacity:.75">${esc(f.description)}</span><span>${input}</span></label>`;
+  }).join('')).join('');
+  const n = Object.values(j.settings).filter(f => f.set).length;
+  $('#setstatus').textContent = `(${n} set)`;
+}
+$('#setform').onsubmit = async e => {
+  e.preventDefault();
+  const body = {};
+  for (const [k, v] of new FormData(e.target).entries()) body[k] = k.startsWith('clear_') ? true : v;
+  const r = await api('POST', '/api/settings', body); const j = await r.json();
+  $('#setmsg').textContent = r.ok ? 'Saved: ' + (j.changed.join(', ') || 'nothing changed') : (j.error || 'failed');
+  loadSettings(); gs1Status();
+};
+load(); gs1Status(); loadSettings(); setInterval(load, 30000);
+</script>
+</body>
+</html>
