@@ -9,12 +9,15 @@ it and sends reminders to Home Assistant over MQTT.
 
 I built it during my internship at M5Stack. The write-up, with a demo video and
 a working copy of the screen, is at
-[chiambucket.com/pantry](https://www.chiambucket.com/pantry).
+[chiambucket.com/pantry](https://www.chiambucket.com/pantry), and M5Stack wrote
+about it on their blog in
+[Turn Your Fridge Door into a Pantry Assistant with M5Stack CoreS3 SE](https://shop.m5stack.com/blogs/news/turn-your-fridge-door-into-a-pantry-assistant-with-m5stack-cores3-se).
 
 ## Downloads
 
 | Download | For |
 |---|---|
+| [Firmware on M5Burner](https://burner.m5stack.com/share/firmware/R4VK5Z) | the CoreS3 SE, flashed with M5Burner |
 | [Server for Intel and AMD computers](https://github.com/New-Kringster/Pantry_tracker_code/releases/latest/download/pantry-server-docker-amd64.tar.gz) | a mini PC, a NAS, a Windows or Linux PC |
 | [Server for ARM computers](https://github.com/New-Kringster/Pantry_tracker_code/releases/latest/download/pantry-server-docker-arm64.tar.gz) | an Apple Silicon Mac, a Raspberry Pi 4 or 5 on a 64-bit OS |
 | [Firmware image](https://github.com/New-Kringster/Pantry_tracker_code/releases/latest/download/pantry-tracker-cores3.bin) | the CoreS3 SE, if you flash it with esptool instead of Flashdeck |
@@ -38,10 +41,12 @@ from Docker Hub while it installs. Every version is on the
    RX DIP blocks, leaving the others off. Then stack the CoreS3 SE on top, the
    module in the middle and the battery base underneath.
 
-2. **Flash the firmware.** Open [Flashdeck](https://flashdeck.shebang.pro/) in
-   Chrome or Edge on a computer, choose **Pantry** in the list, plug the CoreS3 SE
-   in over USB-C and press **Install**. Flashdeck writes the image straight from
-   the browser. To use esptool instead, download the firmware image above and run:
+2. **Flash the firmware.** The firmware is on M5Burner as
+   [CoreS3 SE Pantry Assistant](https://burner.m5stack.com/share/firmware/R4VK5Z): open that page, plug the CoreS3 SE in over
+   USB-C and burn it from M5Burner. You can also open
+   [Flashdeck](https://flashdeck.shebang.pro/) in Chrome or Edge, choose
+   **Pantry** in the list and press **Install**, which writes the image straight
+   from the browser. To use esptool instead, download the firmware image above and run:
 
    ```sh
    esptool --chip esp32s3 --port <your port> --baud 921600 write_flash 0x0 pantry-tracker-cores3.bin
